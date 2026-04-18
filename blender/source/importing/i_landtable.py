@@ -4,6 +4,7 @@ from . import i_enum
 from .i_mesh import MeshData
 from .i_node import NodeProcessor
 from .i_motion import NodeMotionProcessor
+from .i_parity_debug import ParityDebugLogger
 
 from ..dotnet import SAIO_NET
 
@@ -38,6 +39,7 @@ class LandtableProcessor:
     _motion_lut: dict[any, bpy.types.Action]
 
     _meshes: list[MeshData]
+    _parity_debug: ParityDebugLogger | None
 
     def __init__(
             self,
@@ -50,7 +52,8 @@ class LandtableProcessor:
             ensure_anim_order: bool,
             rotation_mode: bool,
             quaternion_threshold: bool,
-            short_rot: bool):
+            short_rot: bool,
+            parity_debug: ParityDebugLogger | None = None):
 
         self._context = context
         self._optimize = optimize
@@ -66,6 +69,7 @@ class LandtableProcessor:
         self._short_rot = short_rot
 
         self._motion_lut = dict()
+        self._parity_debug = parity_debug
 
     def _get_string(self, value) -> str:
         if value is None:
@@ -151,7 +155,17 @@ class LandtableProcessor:
             obj.saio_node, landentry.NodeAttributes)
 
         obj.matrix_world = i_matrix.net_to_bpy_matrix(
-            landentry.WorldMatrix)
+            landentry.WorldMatrix,
+            self._parity_debug,
+            f"landentry_{index}")
+
+        if self._parity_debug is not None and self._parity_debug.enabled:
+            self._parity_debug.emit(
+                "PARITY_ENTRY_BLENDERIO",
+                kind="landentry",
+                index=index,
+                name=obj.name.replace(" ", "_"),
+                matrix_world=i_matrix._format_matrix(obj.matrix_world))
 
         return obj
 
@@ -194,7 +208,8 @@ class LandtableProcessor:
             self._auto_normals,
             self._anim_all_weighted_meshes,
             self._merge_anim_meshes,
-            self._ensure_anim_order
+            self._ensure_anim_order,
+            self._parity_debug
         )
 
         le_prop = obj.saio_land_entry
@@ -266,7 +281,8 @@ class LandtableProcessor:
             ensure_anim_order: bool,
             rotation_mode: bool,
             quaternion_threshold: bool,
-            short_rot: bool):
+            short_rot: bool,
+            parity_debug: ParityDebugLogger | None = None):
 
         processor = LandtableProcessor(
             context,
@@ -278,6 +294,7 @@ class LandtableProcessor:
             ensure_anim_order,
             rotation_mode,
             quaternion_threshold,
-            short_rot)
+            short_rot,
+            parity_debug)
 
         processor.process(import_data, name)
