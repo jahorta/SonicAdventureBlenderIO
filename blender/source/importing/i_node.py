@@ -2,6 +2,7 @@ import bpy
 from mathutils import Matrix, Vector, Quaternion
 
 from . import i_enum, i_matrix, i_mesh, i_texture
+from .i_parity_debug import ParityDebugLogger
 from ..exceptions import SAIOException
 
 class NodeProcessor:
@@ -23,6 +24,7 @@ class NodeProcessor:
     _bone_map: dict
     _node_map: dict
     _pose_matrices: list
+    _parity_debug: ParityDebugLogger | None
 
     def __init__(
             self,
@@ -32,7 +34,8 @@ class NodeProcessor:
             auto_normals: bool,
             all_weighted_meshes: bool,
             merge_meshes: bool,
-            node_name_lut: dict[str, str] | None = None):
+            node_name_lut: dict[str, str] | None = None,
+            parity_debug: ParityDebugLogger | None = None):
 
         self._context = context
         self._collection = collection
@@ -48,6 +51,7 @@ class NodeProcessor:
             self.node_name_lut = {}
         else:
             self.node_name_lut = node_name_lut
+        self._parity_debug = parity_debug
 
     def _eval_name(self, index: int, name: str):
         if self._ensure_order:
@@ -307,7 +311,10 @@ class NodeProcessor:
             self._ensure_order = False
 
         net_matrices = [node_matrix.Item2 for node_matrix in nodes[0].GetWorldMatrixTree()]
-        matrices = i_matrix.net_to_bpy_matrices(net_matrices)
+        matrices = i_matrix.net_to_bpy_matrices(
+            net_matrices,
+            self._parity_debug,
+            "armature_node")
 
         self._setup_armature(name)
 
@@ -344,7 +351,11 @@ class NodeProcessor:
             self._ensure_order = False
 
         net_matrices = [node_matrix.Item2 for node_matrix in nodes[0].GetWorldMatrixTree()]
-        matrices = i_matrix.net_to_bpy_matrices(net_matrices)
+        matrices = i_matrix.net_to_bpy_matrices(
+            net_matrices,
+            self._parity_debug,
+            "object_node")
+        node_index_lut = {node: index for index, node in enumerate(nodes)}
 
         mesh_dict: dict[int, i_mesh.MeshData] = {}
         for mesh in self.meshes:
@@ -373,11 +384,43 @@ class NodeProcessor:
                 obj.saio_node,
                 node.Attributes)
 
+            decoded_attributes = (
+                ("ignore_position", obj.saio_node.ignore_position),
+                ("ignore_rotation", obj.saio_node.ignore_rotation),
+                ("ignore_scale", obj.saio_node.ignore_scale),
+                ("skip_draw", obj.saio_node.skip_draw),
+                ("skip_children", obj.saio_node.skip_children),
+                ("rotate_zyx", obj.saio_node.rotate_zyx),
+                ("no_animate", obj.saio_node.no_animate),
+                ("no_morph", obj.saio_node.no_morph),
+            )
+
+            parent_name = "none"
             if node.Parent in self.object_map:
                 parent_object = self.object_map[node.Parent]
                 obj.parent = parent_object
+                parent_name = parent_object.name
 
             obj.matrix_world = matrices[index]
+
+            if self._parity_debug is not None and self._parity_debug.enabled:
+                self._parity_debug.emit(
+                    "PARITY_NODE_BLENDERIO",
+                    index=index,
+                    name=obj.name.replace(" ", "_"),
+                    parent_index=-1 if node.Parent is None else node_index_lut[node.Parent],
+                    parent_object=parent_name.replace(" ", "_"),
+                    source_flags=",".join(
+                        [f"{name}:{int(value)}" for name, value in decoded_attributes]),
+                    matrix_world=i_matrix._format_matrix(obj.matrix_world))
+
+                if node.Parent is None:
+                    self._parity_debug.emit(
+                        "PARITY_ENTRY_BLENDERIO",
+                        kind="root_node",
+                        index=index,
+                        name=obj.name.replace(" ", "_"),
+                        matrix_world=i_matrix._format_matrix(obj.matrix_world))
 
         self._ensure_order = prev_ensure_order
 
@@ -426,7 +469,8 @@ class NodeProcessor:
             auto_normals: bool = True,
             all_weighted_meshes: bool = False,
             merge_meshes: bool = False,
-            ensure_order: bool = True):
+            ensure_order: bool = True,
+            parity_debug: ParityDebugLogger | None = None):
 
         node_processor = NodeProcessor(
             context,
@@ -435,7 +479,8 @@ class NodeProcessor:
             auto_normals,
             all_weighted_meshes,
             merge_meshes,
-            node_name_lut
+            node_name_lut,
+            parity_debug
         )
 
         result = node_processor.process(import_data, name, mat_name, force_armature)

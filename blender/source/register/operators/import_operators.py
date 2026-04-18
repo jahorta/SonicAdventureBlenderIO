@@ -72,6 +72,15 @@ class ModelImportOperator(SAIOBaseFileLoadOperator):
         default=True
     )
 
+    emit_parity_debug: BoolProperty(
+        name="Emit Parity Debug",
+        description=(
+            "Emit deterministic transform parity debug logs into "
+            "the SAIO_ParityDebug text datablock"
+        ),
+        default=False
+    )
+
     @classmethod
     def poll(cls, context: Context):
         return context.mode == 'OBJECT'
@@ -93,6 +102,7 @@ class ModelImportOperator(SAIOBaseFileLoadOperator):
             body.prop(self, "all_weighted_meshes")
             body.prop(self, "merge_meshes")
             body.prop(self, "ensure_order")
+            body.prop(self, "emit_parity_debug")
 
         return body
 
@@ -126,6 +136,10 @@ class SAIO_OT_Import_Model(ModelImportOperator):
         load_dotnet()
 
         from ...importing import i_node
+        from ...importing.i_parity_debug import ParityDebugLogger
+
+        parity_debug = ParityDebugLogger(self.emit_parity_debug)
+        parity_debug.start()
 
         scene = context.scene
         for file in self.files:
@@ -160,9 +174,11 @@ class SAIO_OT_Import_Model(ModelImportOperator):
                 self.auto_normals,
                 self.all_weighted_meshes,
                 self.merge_meshes,
-                self.ensure_order
+                self.ensure_order,
+                parity_debug
             )
 
+        parity_debug.finish()
         return {'FINISHED'}
 
     def draw(self, context: Context):
@@ -268,6 +284,7 @@ class SAIO_OT_Import_Landtable(ModelImportOperator):
             body.prop(self, "auto_normals")
             body.prop(self, "fix_view")
             body.prop(self, "ensure_static_order")
+            body.prop(self, "emit_parity_debug")
 
         return body
 
@@ -303,6 +320,10 @@ class SAIO_OT_Import_Landtable(ModelImportOperator):
 
         load_dotnet()
         from ...importing import i_landtable
+        from ...importing.i_parity_debug import ParityDebugLogger
+
+        parity_debug = ParityDebugLogger(self.emit_parity_debug)
+        parity_debug.start()
 
         for file in self.files:
             filepath = os.path.join(directory, file.name)
@@ -334,8 +355,10 @@ class SAIO_OT_Import_Landtable(ModelImportOperator):
                 self.ensure_order,
                 self.rotation_mode,
                 self.quaternion_threshold,
-                self.short_rot)
+                self.short_rot,
+                parity_debug)
 
+        parity_debug.finish()
         return {'FINISHED'}
 
 
